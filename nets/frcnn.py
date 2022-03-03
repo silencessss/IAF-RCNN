@@ -7,21 +7,17 @@ from nets.resnet import ResNet50, classifier_layers
 from nets.RoiPoolingConv import RoiPoolingConv
 
 #----------------------------------------------------#
-#   Region Proposal Network (RPN)
-#   該網路結果會先對anchor box進行調整已獲得Region proposal box
+#   创建建议框网络
+#   该网络结果会对先验框进行调整获得建议框
 #----------------------------------------------------#
-def get_rpn(conv_layers, num_anchors):
-    '''
-    : input: conv_layer. (feature map)
-    : output: class, regression. (proposal)
-    '''
+def get_rpn(base_layers, num_anchors):
     #----------------------------------------------------#
-    #   利用一個 512通道的3x3Conv.進行特徵提取
+    #   利用一个512通道的3x3卷积进行特征整合
     #----------------------------------------------------#
-    x = Conv2D(512, (3, 3), padding='same', activation='relu', kernel_initializer=RandomNormal(stddev=0.02), name='rpn_conv1')(conv_layers)
+    x = Conv2D(512, (3, 3), padding='same', activation='relu', kernel_initializer=RandomNormal(stddev=0.02), name='rpn_conv1')(base_layers)
 
     #----------------------------------------------------#
-    #   利用一個1x1 Conv.调整通道数，獲得預測結果
+    #   利用一个1x1卷积调整通道数，获得预测结果
     #----------------------------------------------------#
     x_class = Conv2D(num_anchors, (1, 1), activation='sigmoid', kernel_initializer=RandomNormal(stddev=0.02), name='rpn_out_class')(x)
     x_regr = Conv2D(num_anchors * 4, (1, 1), activation='linear', kernel_initializer=RandomNormal(stddev=0.02), name='rpn_out_regress')(x)
@@ -31,13 +27,12 @@ def get_rpn(conv_layers, num_anchors):
     return [x_class, x_regr]
 
 #----------------------------------------------------#
-#   將Feature Map (conv_layers)以及RPN傳入Head(classifier network)
-#   該網路結果會先對anchor box進行調整已獲得Region proposal box
-#   ROI Pooling → Head(classifier)
+#   将共享特征层和建议框传入classifier网络
+#   该网络结果会对建议框进行调整获得预测框
 #----------------------------------------------------#
-def get_classifier(conv_layers, input_rois, nb_classes=21, pooling_regions = 14):
+def get_classifier(base_layers, input_rois, nb_classes=21, pooling_regions = 14):
     # num_rois, 38, 38, 1024 -> num_rois, 14, 14, 2048
-    out_roi_pool = RoiPoolingConv(pooling_regions)([conv_layers, input_rois])
+    out_roi_pool = RoiPoolingConv(pooling_regions)([base_layers, input_rois])
     
     # num_rois, 14, 14, 1024 -> num_rois, 1, 1, 2048
     out = classifier_layers(out_roi_pool)
@@ -55,30 +50,28 @@ def get_model(config, num_classes):
     inputs = Input(shape=(None, None, 3))
     roi_input = Input(shape=(None, 4))
     #----------------------------------------------------#
-    #   Backbone
-    #   假設輸入為600,600,3
-    #   獲得一個38,38,1024的Feature Map (conv_layers)
+    #   假设输入为600,600,3
+    #   获得一个38,38,1024的共享特征层base_layers
     #----------------------------------------------------#
-    conv_layers = ResNet50(inputs)
+    base_layers = ResNet50(inputs)
+
     #----------------------------------------------------#
-    #   每個特徵點有9個anchor box
+    #   每个特征点9个先验框
     #----------------------------------------------------#
     num_anchors = len(config.anchor_box_scales) * len(config.anchor_box_ratios)
 
     #----------------------------------------------------#
-    #   RPN
-    #   將Feature Map (conv_layers)傳入RPN
-    #   該網路結果會先對anchor box進行調整已獲得Region proposal box
+    #   将共享特征层传入建议框网络
+    #   该网络结果会对先验框进行调整获得建议框
     #----------------------------------------------------#
-    rpn = get_rpn(conv_layers, num_anchors)
+    rpn = get_rpn(base_layers, num_anchors)
     model_rpn = Model(inputs, rpn)
 
     #----------------------------------------------------#
-    #   將Feature Map (conv_layers)以及RPN傳入Head(classifier network)
-    #   該網路結果會先對anchor box進行調整已獲得Region proposal box
-    #   ROI Pooling → Head(classifier)
+    #   将共享特征层和建议框传入classifier网络
+    #   该网络结果会对建议框进行调整获得预测框
     #----------------------------------------------------#
-    classifier = get_classifier(conv_layers, roi_input, num_classes, config.pooling_regions)
+    classifier = get_classifier(base_layers, roi_input, num_classes, config.pooling_regions)
 
     model_all = Model([inputs, roi_input], rpn + classifier)
     return model_rpn, model_all
@@ -88,26 +81,25 @@ def get_predict_model(config, num_classes):
     roi_input = Input(shape=(None, 4))
     feature_map_input = Input(shape=(None,None,1024))
     #----------------------------------------------------#
-    #   假設輸入為600,600,3
-    #   獲得一個38,38,1024的Feature Map (conv_layers)
+    #   假设输入为600,600,3
+    #   获得一个38,38,1024的共享特征层base_layers
     #----------------------------------------------------#
-    conv_layers = ResNet50(inputs)
+    base_layers = ResNet50(inputs)
     #----------------------------------------------------#
-    #   每個特徵點有9個anchor box
+    #   每个特征点9个先验框
     #----------------------------------------------------#
     num_anchors = len(config.anchor_box_scales) * len(config.anchor_box_ratios)
 
     #----------------------------------------------------#
-    #   將Feature Map (conv_layers)傳入RPN
-    #   該網路結果會先對anchor box進行調整已獲得Region proposal box
+    #   将共享特征层传入建议框网络
+    #   该网络结果会对先验框进行调整获得建议框
     #----------------------------------------------------#
-    rpn = get_rpn(conv_layers, num_anchors)
-    model_rpn = Model(inputs, rpn + [conv_layers])
+    rpn = get_rpn(base_layers, num_anchors)
+    model_rpn = Model(inputs, rpn + [base_layers])
 
     #----------------------------------------------------#
-    #   將Feature Map (conv_layers)以及RPN傳入Head(classifier network)
-    #   該網路結果會先對anchor box進行調整已獲得Region proposal box
-    #   ROI Pooling → Head(classifier)
+    #   将共享特征层和建议框传入classifier网络
+    #   该网络结果会对建议框进行调整获得预测框
     #----------------------------------------------------#
     classifier = get_classifier(feature_map_input, roi_input, num_classes, config.pooling_regions)
     model_classifier_only = Model([feature_map_input, roi_input], classifier)

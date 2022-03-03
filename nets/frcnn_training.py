@@ -64,12 +64,12 @@ def smooth_l1(sigma=1.0):
         regression_target = y_true[:, :, :-1]
         anchor_state      = y_true[:, :, -1]
 
-        # 找到正樣本
+        # 找到正样本
         indices           = tf.where(keras.backend.equal(anchor_state, 1))
         regression        = tf.gather_nd(regression, indices)
         regression_target = tf.gather_nd(regression_target, indices)
 
-        # 計算smooth L1 loss
+        # 计算smooth L1损失
         regression_diff = regression - regression_target
         regression_diff = keras.backend.abs(regression_diff)
         regression_loss = tf.where(
